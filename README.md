@@ -31,3 +31,5 @@ docker compose up --build
 - `GET /health` health + Redis connectivity
 - `GET /events` Server-Sent Events stream (Redis Pub/Sub)
 - `POST /publish` publish event `{ "type": "message", "payload": { ... } }`
+
+`POST /publish` has a basic per-IP rate limit enabled by default.

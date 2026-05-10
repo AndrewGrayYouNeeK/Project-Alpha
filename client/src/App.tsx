@@ -55,7 +55,7 @@ function App() {
   }, []);
 
   useEffect(() => {
-    const eventsUrl = `${apiBase.replace(/^http/, 'http')}/events`;
+    const eventsUrl = `${apiBase}/events`;
     const stream = new EventSource(eventsUrl);
 
     stream.onopen = () => setRealtimeConnected(true);

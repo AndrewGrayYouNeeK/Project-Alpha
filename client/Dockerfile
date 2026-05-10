@@ -14,6 +14,6 @@ FROM node:20-alpine AS runner
 WORKDIR /app/client
 ENV NODE_ENV=production
 COPY --from=build /app/client/dist ./dist
-RUN npm install -g serve
+RUN npm install -g serve@14.2.3
 EXPOSE 5173
 CMD ["serve", "-s", "dist", "-l", "5173"]

@@ -1,5 +1,6 @@
 import cors from 'cors';
 import express from 'express';
+import rateLimit from 'express-rate-limit';
 import { createClient } from 'redis';
 import { isRealtimeEvent, type RealtimeEvent } from '../../shared/src';
 
@@ -9,6 +10,9 @@ const PORT = Number(process.env.PORT ?? 3001);
 const REDIS_URL = process.env.REDIS_URL ?? 'redis://localhost:6379';
 const REDIS_CHANNEL = process.env.REDIS_CHANNEL ?? 'project-alpha:events';
 const CLIENT_ORIGIN = process.env.CLIENT_ORIGIN ?? 'http://localhost:5173';
+const HEARTBEAT_INTERVAL_MS = Number(process.env.HEARTBEAT_INTERVAL_MS ?? 15000);
+const PUBLISH_RATE_LIMIT_WINDOW_MS = Number(process.env.PUBLISH_RATE_LIMIT_WINDOW_MS ?? 60000);
+const PUBLISH_RATE_LIMIT_MAX_REQUESTS = Number(process.env.PUBLISH_RATE_LIMIT_MAX_REQUESTS ?? 60);
 
 app.use(cors({ origin: CLIENT_ORIGIN.split(',').map((origin) => origin.trim()) }));
 app.use(express.json());
@@ -30,6 +34,14 @@ const sleep = (delayMs: number): Promise<void> =>
   new Promise((resolve) => {
     setTimeout(resolve, delayMs);
   });
+
+const publishRateLimiter = rateLimit({
+  windowMs: PUBLISH_RATE_LIMIT_WINDOW_MS,
+  limit: PUBLISH_RATE_LIMIT_MAX_REQUESTS,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many publish requests' },
+});
 
 app.get('/', (_req, res) => {
   res.json({ message: 'Project Alpha server is running' });
@@ -61,7 +73,7 @@ app.get('/events', (req, res) => {
   });
 });
 
-app.post('/publish', async (req, res) => {
+app.post('/publish', publishRateLimiter, async (req, res) => {
   const candidate = {
     type: String(req.body?.type ?? 'message'),
     payload: req.body?.payload ?? null,
@@ -144,7 +156,7 @@ const start = async (): Promise<void> => {
     } catch (error) {
       console.error('Failed to publish heartbeat:', error);
     }
-  }, 15000).unref();
+  }, HEARTBEAT_INTERVAL_MS).unref();
 };
 
 void start().catch((error) => {
