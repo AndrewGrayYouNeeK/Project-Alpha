@@ -1,0 +1,35 @@
+services:
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+
+  server:
+    build:
+      context: .
+      dockerfile: server/Dockerfile
+    restart: unless-stopped
+    env_file:
+      - .env.example
+    environment:
+      NODE_ENV: development
+      PORT: 3001
+      REDIS_URL: redis://redis:6379
+      CLIENT_ORIGIN: http://localhost:5173
+    ports:
+      - "3001:3001"
+    depends_on:
+      - redis
+
+  client:
+    build:
+      context: .
+      dockerfile: client/Dockerfile
+    restart: unless-stopped
+    environment:
+      VITE_API_URL: http://localhost:3001
+    ports:
+      - "5173:5173"
+    depends_on:
+      - server
