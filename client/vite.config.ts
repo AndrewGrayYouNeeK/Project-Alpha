@@ -6,5 +6,11 @@ export default defineConfig({
   server: {
     host: '0.0.0.0',
     port: 5173,
+    proxy: {
+      '/health': 'http://localhost:3001',
+      '/events': 'http://localhost:3001',
+      '/publish': 'http://localhost:3001',
+      '/entities': 'http://localhost:3001',
+    },
   },
 });
