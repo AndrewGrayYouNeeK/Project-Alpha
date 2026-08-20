@@ -7,6 +7,7 @@ FROM node:20-alpine AS build
 WORKDIR /app
 COPY --from=deps /app/client/node_modules ./client/node_modules
 COPY client ./client
+COPY shared ./shared
 WORKDIR /app/client
 RUN npm run build
 
