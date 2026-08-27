@@ -1,0 +1,456 @@
+diff --git a/.env.example b/.env.example
+index 9820cba..756b644 100644
+--- a/.env.example
++++ b/.env.example
+@@ -11,6 +11,12 @@
+ # Unlock every shop + custom dice for local development (also on in `npm run dev`)
+ # VITE_UNLOCK_ALL_DICE=true
+ 
++# Project Alpha — global wins leaderboard (self-hosted, replaces Base44 entity sync)
++# Production: set to your deployed Project Alpha API origin, e.g. https://api.youneek.xyz
++# Local dev: leave unset — Vite proxies /project-alpha → http://127.0.0.1:3001
++# VITE_PROJECT_ALPHA_URL=https://your-project-alpha-host:3001
++# VITE_PROJECT_ALPHA_API_KEY=   # only if Project Alpha server sets API_KEY
++
+ # fal.ai — do NOT store here. Put FAL_KEY in Cursor user settings instead:
+ #   Cursor Settings → search "terminal.integrated.env.osx" → add FAL_KEY
+ # Also export in ~/.zshenv so Cursor Agent shell commands can read it.
+diff --git a/src/App.jsx b/src/App.jsx
+index d237b6c..79914b5 100644
+--- a/src/App.jsx
++++ b/src/App.jsx
+@@ -31,7 +31,7 @@ import("@/lib/spriteLabLockedVideos")
+   .then(({ recoverAllVideoSettings }) => recoverAllVideoSettings())
+   .catch(() => {});
+ 
+-const Shop = lazy(() => import('@/pages/Shop'));
++const Leaderboard = lazy(() => import('@/pages/Leaderboard'));
+ 
+ const Setup = lazy(() => import('@/pages/Setup'));
+ const Game = lazy(() => import('@/pages/Game'));
+@@ -142,6 +142,7 @@ function App() {
+             <Route path="/setup" element={<Setup />} />
+             <Route path="/game" element={<Game />} />
+             <Route path="/rules" element={<Rules />} />
++            <Route path="/leaderboard" element={<Leaderboard />} />
+             <Route path="/shop" element={<Shop />} />
+             <Route path="/preview-dice" element={<PreviewDice />} />
+             <Route path="/ragnarok-sprites" element={<Navigate to="/sprite-lab/matrix" replace />} />
+diff --git a/src/hooks/useCosmetics.js b/src/hooks/useCosmetics.js
+index 506aaa1..cd90df9 100644
+--- a/src/hooks/useCosmetics.js
++++ b/src/hooks/useCosmetics.js
+@@ -13,6 +13,7 @@ import { isPreviewSkin, isCustomDiceSkin, withPreviewOwned } from "@/lib/preview
+ import { isDevUnlockAll } from "@/lib/devUnlock";
+ import { DEFAULT_HELD_DICE_STYLE, isValidHeldDiceStyle } from "@/lib/heldDiceStyles";
+ import { SESSION_PLAYER_SKINS_KEY } from "@/lib/ghostDisguise";
++import { syncProfileToLeaderboard } from "@/lib/leaderboardSync";
+ 
+ export function useCosmetics() {
+   const queryClient = useQueryClient();
+@@ -68,12 +69,23 @@ export function useCosmetics() {
+     const skinId = playedSkinId || user.equipped_skin || "classic_white";
+     const skinXpGain = 1 + (won ? 1 : 0);
+     const skinPatch = addSkinPlayXp(user, skinId, skinXpGain);
+-    updateMe.mutate({
+-      xp: Math.max(0, (user.xp ?? 0) + (xpGain || 0)),
+-      games_finished: (user.games_finished ?? 0) + 1,
+-      wins: (user.wins ?? 0) + (won ? 1 : 0),
+-      ...skinPatch,
+-    });
++    updateMe.mutate(
++      {
++        xp: Math.max(0, (user.xp ?? 0) + (xpGain || 0)),
++        games_finished: (user.games_finished ?? 0) + 1,
++        wins: (user.wins ?? 0) + (won ? 1 : 0),
++        ...skinPatch,
++      },
++      {
++        onSuccess: (updated) => {
++          if (won) {
++            void syncProfileToLeaderboard(updated).catch(() => {
++              /* Project Alpha optional — ignore sync failures */
++            });
++          }
++        },
++      },
++    );
+   };
+ 
+   const markIntroSeen = () => {
+diff --git a/src/lib/leaderboardSync.js b/src/lib/leaderboardSync.js
+new file mode 100644
+index 0000000..8d74f73
+--- /dev/null
++++ b/src/lib/leaderboardSync.js
+@@ -0,0 +1,74 @@
++import {
++  isProjectAlphaEnabled,
++  upsertLeaderboardEntity,
++  listLeaderboardEntities,
++  connectProjectAlphaEvents,
++  LEADERBOARD_COLLECTION,
++} from "@/lib/projectAlpha";
++
++const PLAYER_ID_KEY = "roll10000_cloud_player_id";
++
++export function getCloudPlayerId() {
++  try {
++    const existing = localStorage.getItem(PLAYER_ID_KEY);
++    if (existing) return existing;
++    const id =
++      typeof crypto !== "undefined" && crypto.randomUUID
++        ? crypto.randomUUID()
++        : `player-${Date.now()}`;
++    localStorage.setItem(PLAYER_ID_KEY, id);
++    return id;
++  } catch {
++    return `player-${Date.now()}`;
++  }
++}
++
++export async function syncProfileToLeaderboard(profile) {
++  if (!isProjectAlphaEnabled() || !profile) return null;
++
++  const id = getCloudPlayerId();
++  const data = {
++    name: profile.full_name || "Player",
++    wins: profile.wins ?? 0,
++    xp: profile.xp ?? 0,
++    gamesFinished: profile.games_finished ?? 0,
++    skinId: profile.equipped_skin ?? "classic_white",
++    updatedAt: new Date().toISOString(),
++  };
++
++  const apiKey = import.meta.env.VITE_PROJECT_ALPHA_API_KEY?.trim();
++  return upsertLeaderboardEntity(id, data, apiKey || undefined);
++}
++
++export async function fetchLeaderboard() {
++  if (!isProjectAlphaEnabled()) return [];
++
++  const items = await listLeaderboardEntities();
++  return items
++    .map((item) => ({
++      id: item.id,
++      ...item.data,
++    }))
++    .sort((a, b) => (b.wins ?? 0) - (a.wins ?? 0) || (b.xp ?? 0) - (a.xp ?? 0));
++}
++
++export function subscribeLeaderboardUpdates(onUpdate) {
++  if (!isProjectAlphaEnabled()) return () => {};
++
++  const stream = connectProjectAlphaEvents((event) => {
++    if (
++      event.type === "entity.created" ||
++      event.type === "entity.updated" ||
++      event.type === "entity.deleted"
++    ) {
++      const payload = event.payload ?? {};
++      if (payload.collection === LEADERBOARD_COLLECTION) {
++        onUpdate();
++      }
++    }
++  });
++
++  return () => {
++    stream.close();
++  };
++}
+diff --git a/src/lib/projectAlpha.js b/src/lib/projectAlpha.js
+new file mode 100644
+index 0000000..76532ff
+--- /dev/null
++++ b/src/lib/projectAlpha.js
+@@ -0,0 +1,83 @@
++/**
++ * Lightweight Project Alpha client for roll10000.
++ * Replaces hosted BaaS entity APIs with the self-hosted Project Alpha stack.
++ */
++
++const COLLECTION = "roll10000-leaderboard";
++
++function getApiBase() {
++  const configured = import.meta.env.VITE_PROJECT_ALPHA_URL?.trim();
++  if (configured) {
++    return configured.replace(/\/$/, "");
++  }
++  if (import.meta.env.DEV) {
++    return "/project-alpha";
++  }
++  return "";
++}
++
++export function isProjectAlphaEnabled() {
++  return !!getApiBase();
++}
++
++function buildUrl(path) {
++  return `${getApiBase()}${path}`;
++}
++
++async function parseJson(response) {
++  if (!response.ok) {
++    const errorBody = await response.json().catch(() => null);
++    throw new Error(errorBody?.error ?? `Request failed (${response.status})`);
++  }
++  if (response.status === 204) {
++    return undefined;
++  }
++  return response.json();
++}
++
++export async function listLeaderboardEntities() {
++  const response = await fetch(buildUrl(`/entities/${COLLECTION}`));
++  const data = await parseJson(response);
++  return data?.items ?? [];
++}
++
++export async function upsertLeaderboardEntity(id, data, apiKey) {
++  const headers = {
++    "Content-Type": "application/json",
++    ...(apiKey ? { "X-API-Key": apiKey } : {}),
++  };
++
++  const updateResponse = await fetch(
++    buildUrl(`/entities/${COLLECTION}/${encodeURIComponent(id)}`),
++    {
++      method: "PUT",
++      headers,
++      body: JSON.stringify({ data }),
++    },
++  );
++
++  if (updateResponse.status === 404) {
++    const createResponse = await fetch(buildUrl(`/entities/${COLLECTION}`), {
++      method: "POST",
++      headers,
++      body: JSON.stringify({ id, data }),
++    });
++    return parseJson(createResponse);
++  }
++
++  return parseJson(updateResponse);
++}
++
++export function connectProjectAlphaEvents(onEvent) {
++  const stream = new EventSource(buildUrl("/events"));
++  stream.onmessage = (event) => {
++    try {
++      onEvent(JSON.parse(event.data));
++    } catch {
++      /* ignore malformed events */
++    }
++  };
++  return stream;
++}
++
++export { COLLECTION as LEADERBOARD_COLLECTION };
+diff --git a/src/pages/Home.jsx b/src/pages/Home.jsx
+index a963efc..f6a1192 100644
+--- a/src/pages/Home.jsx
++++ b/src/pages/Home.jsx
+@@ -1,7 +1,7 @@
+ import React from "react";
+ import { Link } from "react-router-dom";
+ import { motion } from "framer-motion";
+-import { Users, BookOpen, Sparkles, Coins, Zap, Wifi, Swords, Play } from "lucide-react";
++import { Users, BookOpen, Sparkles, Coins, Zap, Wifi, Swords, Play, Trophy } from "lucide-react";
+ import RulesSheet from "@/components/game/RulesSheet";
+ import { useCosmetics } from "@/hooks/useCosmetics";
+ import DiceRain from "@/components/game/DiceRain";
+@@ -277,6 +277,21 @@ export default function Home() {
+           </motion.div>
+ 
+           <div className="grid grid-cols-2 gap-3">
++            <motion.div whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}>
++              <Link
++                data-dice-obstacle
++                to="/leaderboard"
++                className="flex items-center justify-center w-full h-13 py-3 text-sm font-bold rounded-lg gap-2 border"
++                style={{
++                  background: "rgba(255,200,0,0.08)",
++                  borderColor: "rgba(255,200,0,0.45)",
++                  color: "#fde047",
++                  boxShadow: "0 0 15px rgba(255,200,0,0.12)",
++                }}
++              >
++                <Trophy className="w-4 h-4" /> Leaderboard
++              </Link>
++            </motion.div>
+             <motion.div whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}>
+               <Link
+                 data-dice-obstacle
+diff --git a/src/pages/Leaderboard.jsx b/src/pages/Leaderboard.jsx
+new file mode 100644
+index 0000000..fab8464
+--- /dev/null
++++ b/src/pages/Leaderboard.jsx
+@@ -0,0 +1,149 @@
++import React, { useCallback, useEffect, useState } from "react";
++import { Trophy, Wifi, WifiOff } from "lucide-react";
++import BackButton, { PAGE_HEADER_SAFE_STYLE } from "@/components/ui/BackButton";
++import {
++  fetchLeaderboard,
++  subscribeLeaderboardUpdates,
++} from "@/lib/leaderboardSync";
++import { isProjectAlphaEnabled } from "@/lib/projectAlpha";
++import { getSkin } from "@/lib/shopCatalog";
++
++export default function Leaderboard() {
++  const [rows, setRows] = useState([]);
++  const [loading, setLoading] = useState(true);
++  const [error, setError] = useState(null);
++  const [live, setLive] = useState(false);
++  const enabled = isProjectAlphaEnabled();
++
++  const refresh = useCallback(async () => {
++    if (!enabled) {
++      setLoading(false);
++      return;
++    }
++    try {
++      setError(null);
++      const data = await fetchLeaderboard();
++      setRows(data);
++    } catch (err) {
++      setError(err instanceof Error ? err.message : "Could not load leaderboard");
++    } finally {
++      setLoading(false);
++    }
++  }, [enabled]);
++
++  useEffect(() => {
++    void refresh();
++  }, [refresh]);
++
++  useEffect(() => {
++    if (!enabled) return undefined;
++
++    const unsubscribe = subscribeLeaderboardUpdates(() => {
++      void refresh();
++    });
++
++    const probe = new EventSource(
++      import.meta.env.VITE_PROJECT_ALPHA_URL?.trim()
++        ? `${import.meta.env.VITE_PROJECT_ALPHA_URL.replace(/\/$/, "")}/events`
++        : "/project-alpha/events",
++    );
++    probe.onopen = () => setLive(true);
++    probe.onerror = () => setLive(false);
++
++    return () => {
++      unsubscribe();
++      probe.close();
++      setLive(false);
++    };
++  }, [enabled, refresh]);
++
++  return (
++    <div className="min-h-screen bg-slate-950 text-white">
++      <div
++        className="sticky top-0 z-20 border-b border-slate-800 bg-slate-950/95 backdrop-blur px-4 pb-3 flex items-center gap-3"
++        style={PAGE_HEADER_SAFE_STYLE}
++      >
++        <BackButton to="/" label="Back" />
++        <h1 className="text-xl font-bold flex items-center gap-2">
++          <Trophy className="w-5 h-5 text-amber-400" />
++          Global Wins
++        </h1>
++        {enabled && (
++          <span className="ml-auto text-[10px] font-bold flex items-center gap-1 text-slate-400">
++            {live ? <Wifi className="w-3 h-3 text-emerald-400" /> : <WifiOff className="w-3 h-3" />}
++            {live ? "Live" : "Offline"}
++          </span>
++        )}
++      </div>
++
++      <div className="p-4 max-w-lg mx-auto space-y-4 pb-10">
++        {!enabled && (
++          <section className="bg-slate-900 rounded-2xl p-5 border border-slate-800 text-sm text-slate-300">
++            <p>
++              Project Alpha is not configured. Set <code className="text-cyan-300">VITE_PROJECT_ALPHA_URL</code>{" "}
++              to your API (or run <code className="text-cyan-300">npm run dev</code> with Project Alpha on port 3001).
++            </p>
++          </section>
++        )}
++
++        {enabled && loading && (
++          <p className="text-sm text-slate-400 text-center py-8">Loading leaderboard…</p>
++        )}
++
++        {error && (
++          <section className="bg-rose-950/40 rounded-2xl p-4 border border-rose-800 text-sm text-rose-200">
++            {error}
++          </section>
++        )}
++
++        {enabled && !loading && !error && rows.length === 0 && (
++          <section className="bg-slate-900 rounded-2xl p-5 border border-slate-800 text-sm text-slate-300">
++            No wins synced yet. Win a local or online match and your stats will appear here.
++          </section>
++        )}
++
++        {rows.map((row, index) => {
++          const skin = getSkin(row.skinId);
++          return (
++            <section
++              key={row.id}
++              className="bg-slate-900 rounded-2xl p-4 border border-slate-800 flex items-center gap-3"
++            >
++              <div
++                className="w-10 h-10 rounded-full flex items-center justify-center font-black text-sm shrink-0"
++                style={{
++                  background:
++                    index === 0
++                      ? "linear-gradient(135deg, #fbbf24, #f59e0b)"
++                      : index === 1
++                        ? "linear-gradient(135deg, #94a3b8, #64748b)"
++                        : index === 2
++                          ? "linear-gradient(135deg, #cd7f32, #a16207)"
++                          : "rgba(0,255,200,0.12)",
++                  color: index < 3 ? "#000" : "#00ffc8",
++                }}
++              >
++                {index + 1}
++              </div>
++              <div className="flex-1 min-w-0">
++                <p className="font-bold truncate">{row.name || "Player"}</p>
++                <p className="text-xs text-slate-400 truncate">
++                  {row.wins ?? 0} wins · {(row.xp ?? 0).toLocaleString()} XP
++                  {skin?.name ? ` · ${skin.name}` : ""}
++                </p>
++              </div>
++              <div className="text-right shrink-0">
++                <p className="text-lg font-black text-amber-400">{row.wins ?? 0}</p>
++                <p className="text-[10px] text-slate-500 uppercase tracking-wide">wins</p>
++              </div>
++            </section>
++          );
++        })}
++
++        <p className="text-[11px] text-slate-500 text-center">
++          Powered by Project Alpha — self-hosted sync (not Base44).
++        </p>
++      </div>
++    </div>
++  );
++}
+diff --git a/vite.config.js b/vite.config.js
+index 969309e..349ba27 100644
+--- a/vite.config.js
++++ b/vite.config.js
+@@ -24,6 +24,12 @@ export default defineConfig({
+         ws: true,
+         rewrite: (p) => p.replace(/^\/online-api/, ''),
+       },
++      // Project Alpha API (`npm run dev:server` in Project-Alpha on :3001)
++      '/project-alpha': {
++        target: 'http://127.0.0.1:3001',
++        changeOrigin: true,
++        rewrite: (p) => p.replace(/^\/project-alpha/, ''),
++      },
+     },
+   },
+   preview: {
