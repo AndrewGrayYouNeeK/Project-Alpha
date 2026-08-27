@@ -70,3 +70,29 @@ const health = await projectAlpha.getHealth();
 const notes = await projectAlpha.listEntities('notes');
 await projectAlpha.createEntity('notes', { text: 'Hello' });
 ```
+
+## Connected apps
+
+### YouNeeK 10,000 (`10000TheFinalBoss` / roll10000.com)
+
+Global wins leaderboard syncs to collection `roll10000-leaderboard` when players win matches.
+
+**Local dev (both repos):**
+
+```bash
+# Terminal 1 — Project Alpha (Redis + API on :3001)
+cd Project-Alpha && docker compose up
+
+# Terminal 2 — roll10000 (Vite proxies /project-alpha → :3001)
+cd 10000TheFinalBoss && npm run dev
+```
+
+Win a game, then open **Leaderboard** on the home screen.
+
+**Production:** set on roll10000 build:
+
+```env
+VITE_PROJECT_ALPHA_URL=https://your-api-host:3001
+```
+
+Ensure Project Alpha `CLIENT_ORIGIN` includes your Pages domain (e.g. `https://www.roll10000.com`).
