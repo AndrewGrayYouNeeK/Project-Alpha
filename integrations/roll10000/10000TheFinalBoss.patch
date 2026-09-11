@@ -23,8 +23,8 @@ index d237b6c..79914b5 100644
    .then(({ recoverAllVideoSettings }) => recoverAllVideoSettings())
    .catch(() => {});
  
--const Shop = lazy(() => import('@/pages/Shop'));
 +const Leaderboard = lazy(() => import('@/pages/Leaderboard'));
++const Shop = lazy(() => import('@/pages/Shop'));
  
  const Setup = lazy(() => import('@/pages/Setup'));
  const Game = lazy(() => import('@/pages/Game'));
