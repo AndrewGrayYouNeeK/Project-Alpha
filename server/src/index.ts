@@ -91,7 +91,7 @@ const publishEntityEvent = async (type: string, payload: Record<string, unknown>
 app.get('/', (_req, res) => {
   res.json({
     message: 'Project Alpha server is running',
-    stack: 'self-hosted (no Base44)',
+    stack: 'self-hosted',
     features: ['realtime', 'entities'],
   });
 });

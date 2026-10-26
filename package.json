@@ -2,7 +2,7 @@
   "name": "project-alpha",
   "private": true,
   "version": "1.0.0",
-  "description": "Self-hosted real-time full-stack foundation (Base44-free)",
+  "description": "Self-hosted real-time full-stack foundation",
   "scripts": {
     "dev:server": "npm --prefix server run dev",
     "dev:client": "npm --prefix client run dev",
