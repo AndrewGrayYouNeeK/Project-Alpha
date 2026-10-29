@@ -1,6 +1,6 @@
 # Project Alpha
 
-Self-hosted real-time full-stack foundation built with React, Node.js, Redis, and Docker. This stack replaces hosted BaaS platforms (including Base44) with your own API, storage, and real-time channel.
+Self-hosted real-time full-stack foundation built with React, Node.js, Redis, and Docker. The API, entity storage, and real-time channel all run in this repository.
 
 ## Structure
 
@@ -52,12 +52,6 @@ npm run dev:client   # terminal 2 (proxies API to :3001)
 `POST /publish` and entity mutations have per-IP rate limits enabled by default.
 
 Set `API_KEY` on the server to require `X-API-Key` for entity create/update/delete. Reads stay public.
-
-## Base44 migration notes
-
-- Replace `@base44/sdk` and `base44.entities.*` calls with the `/entities` REST API or `client/src/api/projectAlpha.ts`.
-- Replace `@base44/vite-plugin` with the standard Vite `@` alias in `vite.config` (already used here via proxy + native client).
-- Replace Base44 real-time/functions with `POST /publish` + SSE `/events`.
 
 ## Client API module
 

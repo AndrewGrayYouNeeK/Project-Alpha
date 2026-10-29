@@ -128,7 +128,7 @@ function App() {
   return (
     <main style={{ fontFamily: 'Inter, sans-serif', margin: '2rem auto', maxWidth: 820, lineHeight: 1.5 }}>
       <h1>Project Alpha</h1>
-      <p>Self-hosted real-time stack — Redis Pub/Sub, SSE, and entity storage. No Base44 dependency.</p>
+      <p>Self-hosted real-time stack — Redis Pub/Sub, SSE, and entity storage.</p>
 
       <section style={{ border: '1px solid #e5e7eb', borderRadius: 12, padding: '1rem' }}>
         <h2 style={{ marginTop: 0 }}>Connection Status</h2>
